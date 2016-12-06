@@ -17,18 +17,19 @@ public class IBM1Aligner implements WordAligner {
     private static StringIndexer enIndexer = new StringIndexer();
     private static StringIndexer frIndexer = new StringIndexer();
 
-    private static LongDoubleOpenHashMap probFoverE = new LongDoubleOpenHashMap(5000000);
+//    private static LongDoubleOpenHashMap probFoverE = new LongDoubleOpenHashMap(5000000);
+    private static MyIntegerDoubleCompoundHashMap probFoverE = new MyIntegerDoubleCompoundHashMap();
+//    private static double[][] probFoverE ;
 
+
+//    private static Map<Integer, Map<Integer, Double>> probEoverF = new HashMap<>();
 
     public IBM1Aligner(Iterable<SentencePair> trainingData) {
         System.out.println("Training for IBM Model 1");
         int pairCount = initializeEM(trainingData);
-//        debugBigramPackingLongDoubleOpenHashMap(probFoverE);
-//        debugStringIndexer(frIndexer, "French indexer");
-//        debugStringIndexer(enIndexer, "English indexer");
 
         // convergence criteria
-        int targetNumIterations = 3;
+        int targetNumIterations = 10;
         double delta = .001;
         int iter = 0;
         while (iter < targetNumIterations) {
@@ -36,40 +37,28 @@ public class IBM1Aligner implements WordAligner {
 
             // init count(f|e) and total(e) for all e, f
             // TODO: just init once and use for all loops
-            LongDoubleOpenHashMap countFoverE = new LongDoubleOpenHashMap(200000);
-            IntDoubleOpenHashMap totalE = new IntDoubleOpenHashMap(20000);
-//            for (int i = 0; i < frIndexer.size(); i++) {
-//                for (int j = 0; j < enIndexer.size(); j++) {
-//                    long frEnIdx = BitPackingUtility.bitPackingBigram(i, j);
-//                    countFoverE.put(frEnIdx, 0);
-////
-//                    if (i == 0) {// just do once
-//                        totalE.put(j, 0);
-//                    }
-//                }
-//            }
-//            System.out.println("Content of totalE and countF|E after init");
+//            LongDoubleOpenHashMap countFoverE = new LongDoubleOpenHashMap(200000);
+//            IntDoubleOpenHashMap totalE = new IntDoubleOpenHashMap(20000);
+            MyIntegerDoubleCompoundHashMap countFoverE = new MyIntegerDoubleCompoundHashMap(); // int int double
+            MyIntegerDoubleHashMap totalE = new MyIntegerDoubleHashMap(); // int double
+
 //            debugIntDoubleOpenHashMap(totalE); // OK
 //            debugBigramPackingLongDoubleOpenHashMap(countFoverE); // OK
 
-
             int count = 0; // count number of pairs
-            IntDoubleOpenHashMap[] sentenceTotalF = new IntDoubleOpenHashMap[pairCount];
             for (SentencePair pair : trainingData) {
                 if (count % 100 == 0)
                     System.out.println(count + " pairs processed");
 
                 List<String> englishWords = pair.getEnglishWords();
                 englishWords.add(0, "NULL"); //add NULL token
-
                 List<String> frenchWords = pair.getFrenchWords();
 //                System.out.println("================\nReading sentence pair " + count + " En: " + englishWords + " Fr: " + frenchWords);
 
                 // compute normalization factor for each pair
-                sentenceTotalF[count] = new IntDoubleOpenHashMap(50);
+                MyIntegerDoubleHashMap currentSentenceTotalF = new MyIntegerDoubleHashMap();
                 List<Integer> frIdxList = new ArrayList<>();
                 List<Integer> enIdxList = new ArrayList<>();
-                List<Long> frEnIdxList = new ArrayList<>();
                 List<Double> tF_over_E_List = new ArrayList<>();
                 boolean isEnListAdded = true;
                 for (String fr : frenchWords) {
@@ -81,23 +70,22 @@ public class IBM1Aligner implements WordAligner {
                         int enIdx = enIndexer.indexOf(en);
                         if (isEnListAdded) enIdxList.add(enIdx);
 
-                        long frEnIdx = BitPackingUtility.bitPackingBigram(frIdx, enIdx);
-                        frEnIdxList.add(frEnIdx);
+                        double t_F_over_E = 0.;
+                        if (iter ==0) {
+                            probFoverE.put(frIdx, new MyIntegerDoubleHashMap());
 
-                        double t_F_over_E = probFoverE.get(frEnIdx);
-
-                        // initialization
-                        if (iter==0) {
+//                            t_F_over_E = 1./frIndexer.size();
                             if (en == "NULL")
                                 t_F_over_E += .2;
                             else
-                                t_F_over_E += .8/frIndexer.size();
-                        }
-
+                                t_F_over_E += .8/frIndexer.size();//
+                            probFoverE.get(frIdx).put(enIdx, t_F_over_E);
+                        } else
+                            t_F_over_E = probFoverE.get(frIdx).get(enIdx);
 
 //                        System.out.print(" t(f|e)=" + t_F_over_E + ", ");
                         tF_over_E_List.add(t_F_over_E);
-                        sentenceTotalF[count].increment(frIdx, t_F_over_E);
+                        currentSentenceTotalF.increment(frIdx, t_F_over_E);
                     }
 //                    System.out.println();
                     isEnListAdded = false; // next loop will not redundantly add into enIdxList
@@ -105,23 +93,25 @@ public class IBM1Aligner implements WordAligner {
 
                 // debug
 //                System.out.println("-----\nDebugging normalization factor");
-//                debugIntDoubleOpenHashMap(sentenceTotalF[count]);
-//                System.out.println("Debug 4 lists: frIdxlist, enIdxList, frEnIdxList, tF_over_E_List");
+//                System.out.println(currentSentenceTotalF);
+//                System.out.println("Debug 3 lists: frIdxlist, enIdxList, tF_over_E_List");
 //                System.out.println(frIdxList);
 //                System.out.println(enIdxList);
-//                System.out.println(frEnIdxList);
 //                System.out.println(tF_over_E_List);
 
                 // collect counts
                 int c = 0;
                 for (int frIdx: frIdxList) {
                     for (int enIdx: enIdxList) {
-                        long frEnIdx = frEnIdxList.get(c);
                         double t_F_over_E = tF_over_E_List.get(c);
-                        double sTotalF = sentenceTotalF[count].get(frIdx);
-//                        System.out.println("frIdx=" + frIdx + " enIdx=" + enIdx + " frEnIdx=" + frEnIdx + " t(f|e)=" + t_F_over_E + " s-total(f)=" + sTotalF + " c(f|e)=" + countFoverE.get(frEnIdx) + " totalE=" + totalE.get(enIdx));
-                        countFoverE.increment(frEnIdx, t_F_over_E / sTotalF);
-//                        System.out.println("new c(" + frIndexer.get(frIdx) + "|" + enIndexer.get(enIdx) + ")=" + countFoverE.get(frEnIdx));
+                        double sTotalF = currentSentenceTotalF.get(frIdx);
+//                        if (!countFoverE.containsKey(frIdx))
+//                            System.out.println("frIdx=" + frIdx + " enIdx=" + enIdx + " t(f|e)=" + t_F_over_E + " s-total(f)=" + sTotalF + " c(f|e)=0" + " totalE=" + totalE.get(enIdx));
+//                        else
+//                            System.out.println("frIdx=" + frIdx + " enIdx=" + enIdx + " t(f|e)=" + t_F_over_E + " s-total(f)=" + sTotalF + " c(f|e)=" + countFoverE.get(frIdx).get(enIdx) + " totalE=" + totalE.get(enIdx));
+                        countFoverE.increment(frIdx, enIdx, t_F_over_E / sTotalF);
+
+//                        System.out.println("new c(" + frIndexer.get(frIdx) + "|" + enIndexer.get(enIdx) + ")=" + countFoverE.get(frIdx).get(enIdx));
                         totalE.increment(enIdx, t_F_over_E / sTotalF);
 //                        System.out.println("new total(" + enIndexer.get(enIdx) + ")=" + totalE.get(enIdx) + "\n");
                         c++;
@@ -131,24 +121,21 @@ public class IBM1Aligner implements WordAligner {
                 count ++;
             }
 
-            // now reestimate master t(f|e)
-            for (int i = 0; i < enIndexer.size(); i++) {
-                for (int j = 0; j < frIndexer.size(); j++) {
-                    long frEnIdx = BitPackingUtility.bitPackingBigram(j, i);
-                    probFoverE.put(frEnIdx, countFoverE.get(frEnIdx) / totalE.get(i));
+            // now reestimate master t(f|e) after processing all training samples
+            System.out.println("Reupdating t(f|e)");
+            for (int f = 0; f < frIndexer.size(); f++) {
+                MyIntegerDoubleHashMap currentProbFoverEMap = probFoverE.get(f);
+                MyIntegerDoubleHashMap currentCountFoverEMap = countFoverE.get(f);
+                for (int e = 0; e < enIndexer.size(); e++) {
+                    currentProbFoverEMap.put(e, currentCountFoverEMap.get(e) / totalE.get(e));
                 }
             }
 
-            // debug
-//            System.out.println("+++++++++++++++\nContent of t(f|e) at loop {" + iter + "}");
-//            debugBigramPackingLongDoubleOpenHashMap(probFoverE);
-
-
             // update num iters
             iter++;
-            countFoverE = null;
-            totalE = null;
-            System.gc();
+//            countFoverE = null;
+//            totalE = null;
+//            System.gc();
         }
     }
 
@@ -182,17 +169,6 @@ public class IBM1Aligner implements WordAligner {
         // uniformly init probability
         int frVocabSize = frIndexer.size();
         System.out.println("Size of FR vocab is " + frVocabSize + " size of EN vocab is " + enIndexer.size());
-//        for (int i = 0; i < frVocabSize; i++) {
-//            for (int j = 0; j < enIndexer.size(); j++) {
-//                // t(f|e)
-//                long frEnIdx = BitPackingUtility.bitPackingBigram(i, j);
-////                if (j == 0)
-////                    probFoverE.put(frEnIdx, 0.2);
-////                else
-////                    probFoverE.put(frEnIdx, 0.8/frVocabSize);
-//                probFoverE.put(frEnIdx, 1.0/frVocabSize);
-//            }
-//        }
         System.out.println("Initializing done!");
         return pairCount;
     }
@@ -209,13 +185,15 @@ public class IBM1Aligner implements WordAligner {
         for (int j = 0; j < frenchWords.size(); j++) {
             int frIdx = frIndexer.indexOf(frenchWords.get(j));
 
-            double maxProb = probFoverE.get(BitPackingUtility.bitPackingBigram(frIdx, 0)); // set max to fr-> NULL
+//            double maxProb = probFoverE.get(BitPackingUtility.bitPackingBigram(frIdx, 0)); // set max to fr-> NULL
+            double maxProb = probFoverE.get(frIdx).get(0);
             int bestPosition = -1; // NULL position
             for (int i = 0; i < englishWords.size(); i++) {
                 int enIdx = enIndexer.indexOf(englishWords.get(i));
                 long frEnIdx = BitPackingUtility.bitPackingBigram(frIdx, enIdx);
 
-                double t_F_over_E = probFoverE.get(frEnIdx);
+//                double t_F_over_E = probFoverE.get(frEnIdx);
+                double t_F_over_E = probFoverE.get(frIdx).get(enIdx);
                 if (maxProb < t_F_over_E) {
                     maxProb = t_F_over_E;
                     bestPosition = i; // we already count NULL position = 0
