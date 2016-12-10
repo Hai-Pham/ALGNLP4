@@ -11,7 +11,7 @@ import java.util.*;
 /**
  * Created by Gorilla on 12/3/2016.
  */
-public class IBM1Aligner implements WordAligner {
+public class IBM1Aligner2 implements WordAligner {
 
     private static StringIndexer enIndexer = new StringIndexer();
     private static StringIndexer frIndexer = new StringIndexer();
@@ -19,7 +19,7 @@ public class IBM1Aligner implements WordAligner {
     private static float[][] probEoverF;
 
     // CONSTRUCTOR
-    public IBM1Aligner(Iterable<SentencePair> trainingData) {
+    public IBM1Aligner2(Iterable<SentencePair> trainingData) {
         System.out.println("Training for IBM Model 1");
         initializeEM(trainingData);
 
@@ -271,20 +271,19 @@ public class IBM1Aligner implements WordAligner {
     // ============ ALIGNMENT SHOWTIME ==============
     @Override
     public Alignment alignSentencePair(SentencePair sentencePair) {
-        Alignment alignment = new Alignment();
         List<String> englishWords = sentencePair.getEnglishWords();
         List<String> frenchWords = sentencePair.getFrenchWords();
 
-        Map<Integer, Integer> forwardAligns = getForwardAlignments(englishWords, frenchWords);
-        Map<Integer, Integer> backwardAligns = getBackwardAlignments(englishWords, frenchWords);
-        intersectForwardBackwardAlignments(alignment, forwardAligns, backwardAligns);
+        Alignment forwardAlignment = getForwardAlignments(englishWords, frenchWords);
+        Alignment backwardAlignment = getBackwardAlignments(englishWords, frenchWords);
 
-        return alignment;
+        forwardAlignment.getSureAlignments().retainAll(backwardAlignment.getSureAlignments());
+        return forwardAlignment;
     }
 
-    private Map<Integer, Integer> getForwardAlignments(List<String> englishWords, List<String> frenchWords) {
+    private Alignment getForwardAlignments(List<String> englishWords, List<String> frenchWords) {
         // FORWARD
-        Map<Integer, Integer> forwardAligns = new HashMap<>();
+        Alignment alignment = new Alignment();
         for (int j = 0; j < frenchWords.size(); j++) {
             int frIdx = frIndexer.indexOf(frenchWords.get(j).toLowerCase());
             float maxProb = probFoverE[frIdx][0];
@@ -298,16 +297,15 @@ public class IBM1Aligner implements WordAligner {
                     bestPosition = i; // we already count NULL position = 0
                 }
             }
-            forwardAligns.put(bestPosition, j); // EN -> FR
             // align
-//            alignment.addAlignment(bestPosition, j, true); // if add NULL to english sentence then (--bestPosition)
+            alignment.addAlignment(bestPosition, j, true); // if add NULL to english sentence then (--bestPosition)
         }
-        return forwardAligns;
+        return alignment;
     }
 
-    private Map<Integer, Integer> getBackwardAlignments(List<String> englishWords, List<String> frenchWords) {
+    private Alignment getBackwardAlignments(List<String> englishWords, List<String> frenchWords) {
         // BACKWARD
-        Map<Integer, Integer> backwardAligns = new HashMap<>();
+        Alignment alignment = new Alignment();
         for (int i = 0; i < englishWords.size(); i++) {
             int enIdx = enIndexer.indexOf(englishWords.get(i).toLowerCase());
             float maxProb = probEoverF[enIdx][0];
@@ -321,26 +319,9 @@ public class IBM1Aligner implements WordAligner {
                     bestPosition = j; // we already count NULL position = 0
                 }
             }
-            backwardAligns.put(i, bestPosition); // EN -> FR
-            // align
-//            alignment.addAlignment(i, bestPosition, true); // if add NULL to english sentence then (--bestPosition)
+            alignment.addAlignment(i, bestPosition, true); // if add NULL to english sentence then (--bestPosition)
         }
-        return backwardAligns;
-    }
-
-    private void intersectForwardBackwardAlignments(Alignment alignment, Map<Integer, Integer> forwardAligns, Map<Integer, Integer> backwardAligns) {
-        // INTERSECTION
-        Set<Integer> forwardKeySet = forwardAligns.keySet();
-        Set<Integer> backwardKeySet = backwardAligns.keySet();
-
-        for (int e : forwardKeySet) {
-            int forwardVal = forwardAligns.get(e);
-            if (backwardKeySet.contains(e)) {
-                int backwardVal = backwardAligns.get(e);
-                if (backwardVal == forwardVal)
-                    alignment.addAlignment(e, backwardVal, true);
-            }
-        }
+        return alignment;
     }
 
 
